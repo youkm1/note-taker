@@ -1,0 +1,60 @@
+
+services:
+  stt:
+    build:
+      context: .
+      dockerfile: stt/Dockerfile
+    container_name: notetaker-stt
+    environment:
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-small}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: notetaker-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: notetaker-ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "ollama serve & sleep 5 && ollama pull llama3 && ollama pull nomic-embed-text && wait"
+      ]
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: notetaker-n8n
+    ports:
+      - "5678:5678"
+    env_file:
+      - .env
+    environment:
+      - N8N_SECURE_COOKIE=false
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-true}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-admin}
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    depends_on:
+      - stt
+      - qdrant
+      - ollama
+    restart: unless-stopped
