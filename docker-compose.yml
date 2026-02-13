@@ -1,18 +1,26 @@
 
 services:
+  # -----------------------------------------------------------------------
+  # STT: Whisper Large V3 Turbo (KsponSpeech fine-tuned)
+  # -----------------------------------------------------------------------
   stt:
     build:
       context: .
       dockerfile: stt/Dockerfile
     container_name: notetaker-stt
     environment:
-      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-small}
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-large-v3-turbo}
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+      # KsponSpeech fine-tuned model (CTranslate2 format)
+      - WHISPER_HF_MODEL=${WHISPER_HF_MODEL:-}
     ports:
       - "8000:8000"
     restart: unless-stopped
 
+  # -----------------------------------------------------------------------
+  # Qdrant: Vector Database
+  # -----------------------------------------------------------------------
   qdrant:
     image: qdrant/qdrant:latest
     container_name: notetaker-qdrant
@@ -22,6 +30,9 @@ services:
       - ./qdrant_data:/qdrant/storage
     restart: unless-stopped
 
+  # -----------------------------------------------------------------------
+  # Ollama: LLM & Embeddings
+  # -----------------------------------------------------------------------
   ollama:
     image: ollama/ollama:latest
     container_name: notetaker-ollama
@@ -39,6 +50,52 @@ services:
       ]
     restart: unless-stopped
 
+  # -----------------------------------------------------------------------
+  # RAG: Agentic RAG Pipeline (LangGraph + Hybrid Search + Reranker)
+  # -----------------------------------------------------------------------
+  rag:
+    build:
+      context: .
+      dockerfile: rag/Dockerfile
+    container_name: notetaker-rag
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - QDRANT_URL=http://qdrant:6333
+      - LLM_MODEL=${LLM_MODEL:-llama3}
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-notes}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - qdrant
+      - ollama
+    restart: unless-stopped
+
+  # -----------------------------------------------------------------------
+  # Eval: RAGAS Quality Evaluation
+  # -----------------------------------------------------------------------
+  eval:
+    build:
+      context: .
+      dockerfile: eval/Dockerfile
+    container_name: notetaker-eval
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LLM_MODEL=${LLM_MODEL:-llama3}
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - RAG_SERVICE_URL=http://rag:8001
+    ports:
+      - "8002:8002"
+    depends_on:
+      - rag
+      - ollama
+    restart: unless-stopped
+
+  # -----------------------------------------------------------------------
+  # n8n: Workflow Orchestration
+  # -----------------------------------------------------------------------
   n8n:
     image: n8nio/n8n:latest
     container_name: notetaker-n8n
@@ -57,4 +114,5 @@ services:
       - stt
       - qdrant
       - ollama
+      - rag
     restart: unless-stopped
