@@ -6,7 +6,8 @@ services:
       dockerfile: stt/Dockerfile
     container_name: notetaker-stt
     environment:
-      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-small}
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-large-v3-turbo}
+      - WHISPER_HF_MODEL=${WHISPER_HF_MODEL:-}
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
     ports:
@@ -39,6 +40,39 @@ services:
       ]
     restart: unless-stopped
 
+  rag:
+    build:
+      context: .
+      dockerfile: rag/Dockerfile
+    container_name: notetaker-rag
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - QDRANT_URL=http://qdrant:6333
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - LLM_MODEL=${LLM_MODEL:-llama3}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-notes}
+      - VECTOR_SIZE=${VECTOR_SIZE:-768}
+      - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - qdrant
+      - ollama
+    restart: unless-stopped
+
+  eval:
+    build:
+      context: .
+      dockerfile: eval/Dockerfile
+    container_name: notetaker-eval
+    environment:
+      - RAG_URL=http://rag:8001
+    ports:
+      - "8002:8002"
+    depends_on:
+      - rag
+    restart: unless-stopped
+
   n8n:
     image: n8nio/n8n:latest
     container_name: notetaker-n8n
@@ -57,4 +91,5 @@ services:
       - stt
       - qdrant
       - ollama
+      - rag
     restart: unless-stopped

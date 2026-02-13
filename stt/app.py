@@ -14,23 +14,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger("stt")
 
-MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
+# --- 모델 설정 ---
+# HuggingFace 파인튜닝 모델 (예: seastar105/whisper-large-v3-turbo-ksponspeech-ct2)
+HF_MODEL = os.getenv("WHISPER_HF_MODEL", "")
+MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3-turbo")
 MODEL_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 MODEL_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 
+# KsponSpeech 모델 사용 시 한국어를 기본 언어로 설정
+_is_ksponspeech = "ksponspeech" in HF_MODEL.lower()
+DEFAULT_LANGUAGE: Optional[str] = "ko" if _is_ksponspeech else None
+
+model_id = HF_MODEL if HF_MODEL else MODEL_SIZE
+
 logger.info(
-    "Loading Faster-Whisper model size=%s device=%s compute_type=%s",
-    MODEL_SIZE,
+    "Loading Faster-Whisper model=%s device=%s compute_type=%s (ksponspeech=%s)",
+    model_id,
     MODEL_DEVICE,
     MODEL_COMPUTE_TYPE,
+    _is_ksponspeech,
 )
 model = WhisperModel(
-    MODEL_SIZE,
+    model_id,
     device=MODEL_DEVICE,
     compute_type=MODEL_COMPUTE_TYPE,
 )
 
-app = FastAPI(title="Local STT Service", version="0.1.0")
+app = FastAPI(title="Local STT Service", version="0.2.0")
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "model": model_id,
+        "device": MODEL_DEVICE,
+        "compute_type": MODEL_COMPUTE_TYPE,
+        "default_language": DEFAULT_LANGUAGE,
+    }
 
 
 @app.post("/stt")
@@ -40,6 +61,9 @@ async def transcribe(audio: UploadFile = File(...), lang: Optional[str] = None):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Audio file is required.",
         )
+
+    # 언어 결정: 요청 파라미터 > KsponSpeech 기본값(ko) > 자동 감지
+    language = lang if lang else DEFAULT_LANGUAGE
 
     temp_path = None
     try:
@@ -54,11 +78,12 @@ async def transcribe(audio: UploadFile = File(...), lang: Optional[str] = None):
             tmp.write(data)
             temp_path = tmp.name
 
-        logger.info("Transcribing file=%s language=%s", audio.filename, lang or "auto")
+        logger.info("Transcribing file=%s language=%s", audio.filename, language or "auto")
         segments, info = model.transcribe(
             temp_path,
-            language=lang if lang else None,
-            beam_size=2,
+            language=language,
+            beam_size=5,
+            vad_filter=True,
         )
         transcript = " ".join(segment.text.strip() for segment in segments).strip()
         logger.info(
