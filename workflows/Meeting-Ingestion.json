@@ -1,0 +1,157 @@
+{
+  "name": "Meeting Ingestion (Advanced)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meeting-ingest",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [260, 300],
+      "id": "webhook-meeting",
+      "name": "Webhook - Upload Audio",
+      "webhookId": "meeting-ingest"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://stt:8000/stt",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "audio",
+              "inputDataFieldName": "audio"
+            },
+            {
+              "parameterType": "formData",
+              "name": "lang",
+              "value": "={{ $json.body?.lang || 'ko' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [480, 300],
+      "id": "stt-node",
+      "name": "STT - Whisper Transcription",
+      "notes": "Whisper large-v3-turbo with VAD filter\nSupports KsponSpeech fine-tuned model"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://rag:8001/ingest",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: $json.text,\n  title: $('Webhook - Upload Audio').item.json.body?.title || 'Meeting ' + new Date().toISOString().split('T')[0],\n  metadata: {\n    source: 'meeting',\n    language: $('Webhook - Upload Audio').item.json.body?.lang || 'ko',\n    timestamp: new Date().toISOString(),\n    speaker: $('Webhook - Upload Audio').item.json.body?.speaker || 'unknown'\n  }\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [700, 300],
+      "id": "rag-ingest",
+      "name": "RAG - Ingest with Semantic Chunking",
+      "notes": "Advanced RAG features:\n- Semantic Chunking (embedding similarity-based)\n- nomic-embed-text embeddings\n- Store in Qdrant with metadata"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: 'llama3',\n  stream: false,\n  messages: [\n    {\n      role: 'system',\n      content: 'You are a helpful assistant that summarizes meeting transcripts. Provide a concise summary with key points, decisions, and action items in Korean.'\n    },\n    {\n      role: 'user',\n      content: '다음 회의록을 요약해주세요:\\n\\n' + $node['STT - Whisper Transcription'].json.text\n    }\n  ]\n}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [920, 300],
+      "id": "summarize-node",
+      "name": "Generate Summary (Optional)",
+      "notes": "Optional: Generate meeting summary with Ollama"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raggResponse = $node['RAG - Ingest with Semantic Chunking'].json;\nconst summaryResponse = $node['Generate Summary (Optional)'].json;\nconst transcript = $node['STT - Whisper Transcription'].json;\n\nreturn [{\n  json: {\n    success: true,\n    transcript: transcript.text,\n    summary: summaryResponse?.message?.content || null,\n    rag_result: {\n      chunks_stored: raggResponse.chunks_stored || 0,\n      chunk_ids: raggResponse.ids || []\n    },\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 300],
+      "id": "format-response",
+      "name": "Format Response"
+    }
+  ],
+  "connections": {
+    "Webhook - Upload Audio": {
+      "main": [
+        [
+          {
+            "node": "STT - Whisper Transcription",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STT - Whisper Transcription": {
+      "main": [
+        [
+          {
+            "node": "RAG - Ingest with Semantic Chunking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG - Ingest with Semantic Chunking": {
+      "main": [
+        [
+          {
+            "node": "Generate Summary (Optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Summary (Optional)": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": [
+    {
+      "name": "RAG",
+      "id": "rag-tag"
+    },
+    {
+      "name": "STT",
+      "id": "stt-tag"
+    }
+  ]
+}

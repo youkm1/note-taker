@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Literal
 
-import requests
+from google import genai
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
@@ -21,8 +21,8 @@ from rag.retriever import SearchResult, hybrid_search
 
 logger = logging.getLogger("rag.graph")
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama3")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 MAX_RETRIES = 2
 
 
@@ -47,20 +47,12 @@ class RAGState(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 def _llm_chat(system: str, user: str) -> str:
-    resp = requests.post(
-        f"{OLLAMA_URL}/api/chat",
-        json={
-            "model": LLM_MODEL,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "stream": False,
-        },
-        timeout=120,
+    prompt = f"{system}\n\n{user}"
+    response = _gemini_client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
     )
-    resp.raise_for_status()
-    return resp.json()["message"]["content"]
+    return response.text
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +65,7 @@ def analyse_query(state: RAGState) -> RAGState:
 
     system = (
         "You are a query analyzer. Given the user question, decide:\n"
-        "1. route: 'retrieve' if the question needs information from stored documents, 'direct' if it can be answered from general knowledge.\n"
+        "1. route: 'retrieve' if the question needs information from stored documents, 'direct' if it can be answered from general knowledge. When uncertain, choose 'retrieve'.\n"
         "2. sub_queries: If the question is complex, break it into 1-3 simpler sub-queries. If simple, return only the original.\n"
         "Respond EXACTLY in this format (no extra text):\n"
         "ROUTE: retrieve\n"

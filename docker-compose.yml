@@ -23,41 +23,21 @@ services:
       - ./qdrant_data:/qdrant/storage
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: notetaker-ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-    ports:
-      - "11434:11434"
-    volumes:
-      - ./ollama_data:/root/.ollama
-    entrypoint:
-      [
-        "/bin/sh",
-        "-c",
-        "ollama serve & sleep 5 && ollama pull llama3 && ollama pull nomic-embed-text && wait"
-      ]
-    restart: unless-stopped
-
   rag:
     build:
       context: .
       dockerfile: rag/Dockerfile
     container_name: notetaker-rag
     environment:
-      - OLLAMA_URL=http://ollama:11434
       - QDRANT_URL=http://qdrant:6333
-      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
-      - LLM_MODEL=${LLM_MODEL:-llama3}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-notes}
-      - VECTOR_SIZE=${VECTOR_SIZE:-768}
+      - VECTOR_SIZE=${VECTOR_SIZE:-3072}
       - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
     ports:
       - "8001:8001"
     depends_on:
       - qdrant
-      - ollama
     restart: unless-stopped
 
   eval:
@@ -67,6 +47,7 @@ services:
     container_name: notetaker-eval
     environment:
       - RAG_URL=http://rag:8001
+      - GEMINI_API_KEY=${GEMINI_API_KEY_EVAL}
     ports:
       - "8002:8002"
     depends_on:
@@ -90,6 +71,5 @@ services:
     depends_on:
       - stt
       - qdrant
-      - ollama
       - rag
     restart: unless-stopped

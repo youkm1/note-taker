@@ -1,16 +1,17 @@
 """Semantic Chunking — 임베딩 유사도 기반으로 텍스트를 의미 단위 청크로 분할."""
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 
 import numpy as np
-import requests
+from google import genai
 
 logger = logging.getLogger("rag.chunking")
 
-OLLAMA_URL = "http://ollama:11434"
-EMBED_MODEL = "nomic-embed-text"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 @dataclass
@@ -26,17 +27,12 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def _embed(texts: list[str]) -> np.ndarray:
-    """Ollama nomic-embed-text를 이용해 텍스트 리스트의 임베딩 벡터를 반환."""
-    vectors = []
-    for t in texts:
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": EMBED_MODEL, "prompt": t},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        vectors.append(resp.json()["embedding"])
-    return np.array(vectors)
+    """Gemini text-embedding-004로 텍스트 리스트의 임베딩 벡터를 반환."""
+    result = _gemini_client.models.embed_content(
+        model="gemini-embedding-001",
+        contents=texts,
+    )
+    return np.array([e.values for e in result.embeddings])
 
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

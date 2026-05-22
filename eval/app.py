@@ -7,8 +7,11 @@ from typing import Optional
 import requests
 from datasets import Dataset
 from fastapi import FastAPI, HTTPException, status
+from google import genai
 from pydantic import BaseModel
 from ragas import evaluate
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from ragas.llms import llm_factory
 from ragas.metrics import (
     answer_relevancy,
     context_precision,
@@ -23,6 +26,16 @@ logging.basicConfig(
 logger = logging.getLogger("eval")
 
 RAG_URL = os.getenv("RAG_URL", "http://rag:8001")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+_evaluator_llm = llm_factory(
+    "gemini-2.5-flash", provider="google", client=_gemini_client,
+)
+_evaluator_embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/gemini-embedding-001",
+    google_api_key=GEMINI_API_KEY,
+)
 
 app = FastAPI(title="RAGAS Evaluation Service", version="0.1.0")
 
@@ -109,7 +122,7 @@ def _run_evaluation(samples: list[EvalSample]) -> Dataset:
     dataset = Dataset.from_dict(data)
 
     metrics = [faithfulness, answer_relevancy, context_precision, context_recall]
-    result = evaluate(dataset, metrics=metrics)
+    result = evaluate(dataset, metrics=metrics, llm=_evaluator_llm, embeddings=_evaluator_embeddings)
     return result
 
 

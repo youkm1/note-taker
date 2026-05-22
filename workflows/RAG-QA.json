@@ -1,0 +1,176 @@
+{
+  "name": "RAG Q&A (Advanced Agentic)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rag-query",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [260, 300],
+      "id": "webhook-query",
+      "name": "Webhook - Question Input",
+      "webhookId": "rag-query"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://rag:8001/query",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({\n  question: $json.body?.question || $json.question\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [480, 300],
+      "id": "rag-query",
+      "name": "RAG - Agentic Query",
+      "notes": "LangGraph Agentic RAG Pipeline:\n\n1. Query Analysis\n   - Route decision (search vs direct answer)\n   - Complex query decomposition (1-3 sub-queries)\n\n2. Hybrid Search\n   - BM25 keyword search (top-20)\n   - Vector similarity search (top-20)\n   - RRF (Reciprocal Rank Fusion)\n   - Cross-Encoder Reranker (ms-marco-MiniLM-L-6-v2)\n\n3. Answer Generation\n   - Context-aware LLM generation\n\n4. Reflection Loop\n   - Self-evaluation (relevance & faithfulness)\n   - Query rewriting if failed\n   - Re-retrieval (max 2 iterations)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-ground-truth",
+              "leftValue": "={{ $json.body?.ground_truth }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [700, 300],
+      "id": "check-evaluation",
+      "name": "Should Evaluate?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://eval:8002/evaluate",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({\n  sample: {\n    question: $node['Webhook - Question Input'].json.body?.question || $node['Webhook - Question Input'].json.question,\n    ground_truth: $node['Webhook - Question Input'].json.body?.ground_truth,\n    answer: $node['RAG - Agentic Query'].json.answer,\n    contexts: ($node['RAG - Agentic Query'].json.contexts || []).map(c => c.text)\n  }\n}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [920, 200],
+      "id": "eval-node",
+      "name": "RAGAS - Quality Evaluation",
+      "notes": "RAGAS Metrics:\n- Faithfulness (답변이 컨텍스트에 충실한가)\n- Answer Relevance (답변이 질문과 관련있는가)\n- Context Precision (검색된 컨텍스트의 정밀도)\n- Context Recall (ground truth 커버리지)\n\nNote: If answer/contexts not provided,\nautomatically fetches from RAG service"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ragResponse = $node['RAG - Agentic Query'].json;\nconst webhookData = $node['Webhook - Question Input'].json;\nconst evalResponse = $node['RAGAS - Quality Evaluation']?.json;\n\nreturn [{\n  json: {\n    question: webhookData.body?.question || webhookData.question,\n    answer: ragResponse.answer,\n    contexts: ragResponse.contexts || [],\n    evaluation: evalResponse ? {\n      faithfulness: evalResponse.faithfulness,\n      answer_relevance: evalResponse.answer_relevance,\n      context_precision: evalResponse.context_precision,\n      context_recall: evalResponse.context_recall\n    } : null,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 200],
+      "id": "format-with-eval",
+      "name": "Format Response (with Eval)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ragResponse = $node['RAG - Agentic Query'].json;\nconst webhookData = $node['Webhook - Question Input'].json;\n\nreturn [{\n  json: {\n    question: webhookData.body?.question || webhookData.question,\n    answer: ragResponse.answer,\n    contexts: ragResponse.contexts || [],\n    evaluation: null,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 400],
+      "id": "format-no-eval",
+      "name": "Format Response (no Eval)"
+    }
+  ],
+  "connections": {
+    "Webhook - Question Input": {
+      "main": [
+        [
+          {
+            "node": "RAG - Agentic Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG - Agentic Query": {
+      "main": [
+        [
+          {
+            "node": "Should Evaluate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Evaluate?": {
+      "main": [
+        [
+          {
+            "node": "RAGAS - Quality Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Response (no Eval)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAGAS - Quality Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Format Response (with Eval)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": [
+    {
+      "name": "RAG",
+      "id": "rag-tag"
+    },
+    {
+      "name": "Agentic",
+      "id": "agentic-tag"
+    },
+    {
+      "name": "Evaluation",
+      "id": "eval-tag"
+    }
+  ]
+}

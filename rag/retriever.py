@@ -12,10 +12,12 @@ from sentence_transformers import CrossEncoder
 
 logger = logging.getLogger("rag.retriever")
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+from google import genai
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 COLLECTION = os.getenv("QDRANT_COLLECTION", "notes")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 reranker = CrossEncoder(RERANKER_MODEL)
@@ -118,13 +120,11 @@ def _bm25_search(query: str, top_k: int = 20) -> list[SearchResult]:
 # ---------------------------------------------------------------------------
 
 def _embed_query(text: str) -> list[float]:
-    resp = requests.post(
-        f"{OLLAMA_URL}/api/embeddings",
-        json={"model": EMBED_MODEL, "prompt": text},
-        timeout=30,
+    result = _gemini_client.models.embed_content(
+        model="gemini-embedding-001",
+        contents=text,
     )
-    resp.raise_for_status()
-    return resp.json()["embedding"]
+    return result.embeddings[0].values
 
 
 def _vector_search(query: str, top_k: int = 20) -> list[SearchResult]:

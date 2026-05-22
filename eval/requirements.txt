@@ -4,3 +4,6 @@ requests
 ragas
 datasets
 pydantic
+google-genai
+langchain-google-genai
+jsonref

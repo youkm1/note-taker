@@ -5,3 +5,4 @@ numpy
 sentence-transformers
 langgraph
 pydantic
+google-genai

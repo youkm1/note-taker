@@ -18,11 +18,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("rag")
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+from google import genai
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 COLLECTION = os.getenv("QDRANT_COLLECTION", "notes")
-VECTOR_SIZE = int(os.getenv("VECTOR_SIZE", "768"))
+VECTOR_SIZE = int(os.getenv("VECTOR_SIZE", "3072"))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 app = FastAPI(title="RAG Service", version="0.1.0")
 
@@ -99,14 +101,12 @@ async def ingest(req: IngestRequest):
     points = []
     ids = []
     for chunk in chunks:
-        # 임베딩 생성
-        embed_resp = requests.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": EMBED_MODEL, "prompt": chunk.text},
-            timeout=30,
+        # 임베딩 생성 (Gemini API)
+        embed_result = _gemini_client.models.embed_content(
+            model="gemini-embedding-001",
+            contents=chunk.text,
         )
-        embed_resp.raise_for_status()
-        vector = embed_resp.json()["embedding"]
+        vector = embed_result.embeddings[0].values
 
         point_id = str(uuid.uuid4())
         ids.append(point_id)
