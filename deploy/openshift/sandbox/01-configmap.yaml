@@ -10,7 +10,7 @@ data:
 
   # Qdrant Cloud (URL은 여기, API 키는 Secret)
   # 형식: https://<cluster-id>.eu-west-1-0.aws.cloud.qdrant.io:6333
-  QDRANT_URL: "replace-with-qdrant-cloud-url:6333"
+  QDRANT_URL: "https://b64012b7-75ad-4e35-b6f5-8452375624ba.eu-west-1-0.aws.cloud.qdrant.io:6333"
   QDRANT_COLLECTION: "notes"
   VECTOR_SIZE: "3072"
 

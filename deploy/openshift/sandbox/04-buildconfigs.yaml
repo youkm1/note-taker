@@ -10,7 +10,7 @@ spec:
     type: Git
     git:
       uri: https://github.com/youkm1/note-taker
-      ref: main
+      ref: claude/pensive-volta-jDk0R
     contextDir: "/"
   strategy:
     type: Docker
@@ -32,7 +32,7 @@ spec:
     type: Git
     git:
       uri: https://github.com/youkm1/note-taker
-      ref: main
+      ref: claude/pensive-volta-jDk0R
     contextDir: "/"
   strategy:
     type: Docker
@@ -54,7 +54,7 @@ spec:
     type: Git
     git:
       uri: https://github.com/youkm1/note-taker
-      ref: main
+      ref: claude/pensive-volta-jDk0R
     contextDir: "/"
   strategy:
     type: Docker
