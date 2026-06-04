@@ -68,6 +68,10 @@ docker-compose up -d
 - Meeting ingestion: `workflows/meeting-summary.md`
 - RAG Q&A: `workflows/rag-query.md`
 
+## IBM Client Engineering Migration
+
+- Interview-oriented migration plan: `IBM_MIGRATION_PLAN.md`
+
 ## Data Persistence
 
 - Qdrant data: `qdrant_data/`

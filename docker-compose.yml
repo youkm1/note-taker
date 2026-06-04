@@ -6,10 +6,21 @@ services:
       dockerfile: stt/Dockerfile
     container_name: notetaker-stt
     environment:
+      - STT_PROVIDER=${STT_PROVIDER:-whisper}
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-large-v3-turbo}
       - WHISPER_HF_MODEL=${WHISPER_HF_MODEL:-}
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+      - IBM_STT_APIKEY=${IBM_STT_APIKEY:-}
+      - IBM_STT_URL=${IBM_STT_URL:-}
+      - IBM_STT_MODEL=${IBM_STT_MODEL:-ko-KR_Multimedia}
+      - IBM_STT_TIMEOUT=${IBM_STT_TIMEOUT:-900}
+      - IBM_STT_LEARNING_OPT_OUT=${IBM_STT_LEARNING_OPT_OUT:-true}
+      - IBM_STT_CUSTOMER_ID=${IBM_STT_CUSTOMER_ID:-notetaker}
+      - RTZR_CLIENT_ID=${RTZR_CLIENT_ID:-}
+      - RTZR_CLIENT_SECRET=${RTZR_CLIENT_SECRET:-}
+      - RTZR_POLL_INTERVAL=${RTZR_POLL_INTERVAL:-5}
+      - RTZR_TIMEOUT=${RTZR_TIMEOUT:-900}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -68,6 +79,7 @@ services:
       - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-admin}
     volumes:
       - ./n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
     depends_on:
       - stt
       - qdrant

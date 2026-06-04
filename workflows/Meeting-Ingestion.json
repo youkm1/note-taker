@@ -3,17 +3,46 @@
   "nodes": [
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "meeting-ingest",
-        "responseMode": "lastNode",
+        "formTitle": "회의록 음성 업로드",
+        "formDescription": "회의 녹음 파일을 업로드하면 자동으로 텍스트 변환 및 저장됩니다.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "오디오 파일",
+              "fieldType": "file",
+              "requiredField": true,
+              "acceptFileTypes": ".mp3,.m4a,.wav,.webm,.ogg,.flac"
+            },
+            {
+              "fieldLabel": "회의 제목",
+              "fieldType": "text",
+              "placeholder": "예: 2024년 1월 팀 회의"
+            },
+            {
+              "fieldLabel": "언어",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  { "option": "ko" },
+                  { "option": "en" },
+                  { "option": "ja" }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "발표자",
+              "fieldType": "text",
+              "placeholder": "예: 홍길동"
+            }
+          ]
+        },
         "options": {}
       },
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2.1,
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
       "position": [260, 300],
-      "id": "webhook-meeting",
-      "name": "Webhook - Upload Audio",
-      "webhookId": "meeting-ingest"
+      "id": "form-meeting",
+      "name": "Form - 회의록 업로드"
     },
     {
       "parameters": {
@@ -26,12 +55,12 @@
             {
               "parameterType": "formBinaryData",
               "name": "audio",
-              "inputDataFieldName": "audio"
+              "inputDataFieldName": "오디오 파일"
             },
             {
               "parameterType": "formData",
               "name": "lang",
-              "value": "={{ $json.body?.lang || 'ko' }}"
+              "value": "={{ $json['언어'] || 'ko' }}"
             }
           ]
         },
@@ -44,7 +73,7 @@
       "position": [480, 300],
       "id": "stt-node",
       "name": "STT - Whisper Transcription",
-      "notes": "Whisper large-v3-turbo with VAD filter\nSupports KsponSpeech fine-tuned model"
+      "notes": "Whisper large-v3-turbo with VAD filter"
     },
     {
       "parameters": {
@@ -52,7 +81,7 @@
         "url": "http://rag:8001/ingest",
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ JSON.stringify({\n  text: $json.text,\n  title: $('Webhook - Upload Audio').item.json.body?.title || 'Meeting ' + new Date().toISOString().split('T')[0],\n  metadata: {\n    source: 'meeting',\n    language: $('Webhook - Upload Audio').item.json.body?.lang || 'ko',\n    timestamp: new Date().toISOString(),\n    speaker: $('Webhook - Upload Audio').item.json.body?.speaker || 'unknown'\n  }\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  text: $json.text,\n  title: $('Form - 회의록 업로드').item.json['회의 제목'] || 'Meeting ' + new Date().toISOString().split('T')[0],\n  metadata: {\n    source: 'meeting',\n    language: $('Form - 회의록 업로드').item.json['언어'] || 'ko',\n    timestamp: new Date().toISOString(),\n    speaker: $('Form - 회의록 업로드').item.json['발표자'] || 'unknown'\n  }\n}) }}",
         "options": {
           "timeout": 120000
         }
@@ -62,39 +91,21 @@
       "position": [700, 300],
       "id": "rag-ingest",
       "name": "RAG - Ingest with Semantic Chunking",
-      "notes": "Advanced RAG features:\n- Semantic Chunking (embedding similarity-based)\n- nomic-embed-text embeddings\n- Store in Qdrant with metadata"
+      "notes": "Advanced RAG features:\n- Semantic Chunking (embedding similarity-based)\n- Gemini embeddings\n- Store in Qdrant with metadata"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://ollama:11434/api/chat",
-        "sendBody": true,
-        "contentType": "json",
-        "jsonBody": "={{ JSON.stringify({\n  model: 'llama3',\n  stream: false,\n  messages: [\n    {\n      role: 'system',\n      content: 'You are a helpful assistant that summarizes meeting transcripts. Provide a concise summary with key points, decisions, and action items in Korean.'\n    },\n    {\n      role: 'user',\n      content: '다음 회의록을 요약해주세요:\\n\\n' + $node['STT - Whisper Transcription'].json.text\n    }\n  ]\n}) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [920, 300],
-      "id": "summarize-node",
-      "name": "Generate Summary (Optional)",
-      "notes": "Optional: Generate meeting summary with Ollama"
-    },
-    {
-      "parameters": {
-        "jsCode": "const raggResponse = $node['RAG - Ingest with Semantic Chunking'].json;\nconst summaryResponse = $node['Generate Summary (Optional)'].json;\nconst transcript = $node['STT - Whisper Transcription'].json;\n\nreturn [{\n  json: {\n    success: true,\n    transcript: transcript.text,\n    summary: summaryResponse?.message?.content || null,\n    rag_result: {\n      chunks_stored: raggResponse.chunks_stored || 0,\n      chunk_ids: raggResponse.ids || []\n    },\n    timestamp: new Date().toISOString()\n  }\n}];"
+        "jsCode": "const ragResponse = $node['RAG - Ingest with Semantic Chunking'].json;\nconst transcript = $node['STT - Whisper Transcription'].json;\n\nreturn [{\n  json: {\n    success: true,\n    transcript: transcript.text,\n    rag_result: {\n      chunks_stored: ragResponse.chunks_stored || 0,\n      chunk_ids: ragResponse.ids || []\n    },\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1140, 300],
+      "position": [920, 300],
       "id": "format-response",
       "name": "Format Response"
     }
   ],
   "connections": {
-    "Webhook - Upload Audio": {
+    "Form - 회의록 업로드": {
       "main": [
         [
           {
@@ -117,17 +128,6 @@
       ]
     },
     "RAG - Ingest with Semantic Chunking": {
-      "main": [
-        [
-          {
-            "node": "Generate Summary (Optional)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Generate Summary (Optional)": {
       "main": [
         [
           {

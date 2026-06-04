@@ -19,6 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger("rag")
 
 from google import genai
+from google.genai import errors as genai_errors
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 COLLECTION = os.getenv("QDRANT_COLLECTION", "notes")
@@ -51,6 +52,32 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     contexts: list[dict]
+
+
+def _gemini_error_answer(exc: Exception) -> str | None:
+    """Return a user-facing answer for transient Gemini quota/availability errors."""
+    status_code = getattr(exc, "status_code", None)
+    message = str(exc)
+
+    if isinstance(exc, genai_errors.ClientError) and status_code == 429:
+        return (
+            "Gemini API 요청 한도에 걸렸습니다. 잠시 후 다시 시도하거나 "
+            "Google AI Studio/Google Cloud에서 billing 또는 quota를 확인해주세요."
+        )
+
+    if isinstance(exc, genai_errors.ServerError) and status_code == 503:
+        return "Gemini 모델이 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요."
+
+    if "RESOURCE_EXHAUSTED" in message or "429" in message:
+        return (
+            "Gemini API 요청 한도에 걸렸습니다. 잠시 후 다시 시도하거나 "
+            "Google AI Studio/Google Cloud에서 billing 또는 quota를 확인해주세요."
+        )
+
+    if "503" in message or "UNAVAILABLE" in message:
+        return "Gemini 모델이 일시적으로 혼잡합니다. 잠시 후 다시 시도해주세요."
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +167,19 @@ async def query(req: QueryRequest):
     if not req.question.strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Question is empty.")
 
-    result = rag_graph.invoke({"query": req.question})
+    try:
+        result = rag_graph.invoke({"query": req.question})
+    except Exception as exc:
+        answer = _gemini_error_answer(exc)
+        if answer:
+            logger.warning("Gemini-backed RAG query failed gracefully: %s", exc)
+            return QueryResponse(answer=answer, contexts=[])
+        logger.exception("RAG query failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="RAG query failed.",
+        ) from exc
+
     return QueryResponse(
         answer=result.get("answer", ""),
         contexts=result.get("contexts", []),
