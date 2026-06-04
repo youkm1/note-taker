@@ -15,8 +15,15 @@ logger = logging.getLogger("rag.retriever")
 from google import genai
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION = os.getenv("QDRANT_COLLECTION", "notes")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+
+def _qdrant_headers() -> dict:
+    if QDRANT_API_KEY:
+        return {"api-key": QDRANT_API_KEY}
+    return {}
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
@@ -74,6 +81,7 @@ def _fetch_all_points() -> list[dict]:
             body["offset"] = offset
         resp = requests.post(
             f"{QDRANT_URL}/collections/{COLLECTION}/points/scroll",
+            headers=_qdrant_headers(),
             json=body,
             timeout=10,
         )
@@ -131,6 +139,7 @@ def _vector_search(query: str, top_k: int = 20) -> list[SearchResult]:
     vector = _embed_query(query)
     resp = requests.post(
         f"{QDRANT_URL}/collections/{COLLECTION}/points/search",
+        headers=_qdrant_headers(),
         json={"vector": vector, "limit": top_k, "with_payload": True},
         timeout=10,
     )

@@ -1,0 +1,17 @@
+# OpenShift 내부 이미지 레지스트리 태그.
+# BuildConfig 빌드가 완료되면 여기에 이미지가 저장되고,
+# Deployment의 image.openshift.io/triggers 어노테이션이 파드를 자동 갱신함.
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: notetaker-stt
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: notetaker-rag
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: notetaker-eval

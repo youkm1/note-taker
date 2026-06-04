@@ -22,8 +22,15 @@ from google import genai
 from google.genai import errors as genai_errors
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION = os.getenv("QDRANT_COLLECTION", "notes")
 VECTOR_SIZE = int(os.getenv("VECTOR_SIZE", "3072"))
+
+
+def _qdrant_headers() -> dict:
+    if QDRANT_API_KEY:
+        return {"api-key": QDRANT_API_KEY}
+    return {}
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -86,13 +93,18 @@ def _gemini_error_answer(exc: Exception) -> str | None:
 
 def _ensure_collection():
     try:
-        resp = requests.get(f"{QDRANT_URL}/collections/{COLLECTION}", timeout=5)
+        resp = requests.get(
+            f"{QDRANT_URL}/collections/{COLLECTION}",
+            headers=_qdrant_headers(),
+            timeout=5,
+        )
         if resp.status_code == 200:
             return
     except requests.RequestException:
         pass
     requests.put(
         f"{QDRANT_URL}/collections/{COLLECTION}",
+        headers=_qdrant_headers(),
         json={
             "vectors": {"size": VECTOR_SIZE, "distance": "Cosine"},
         },
@@ -152,6 +164,7 @@ async def ingest(req: IngestRequest):
     # Qdrant에 적재
     resp = requests.put(
         f"{QDRANT_URL}/collections/{COLLECTION}/points",
+        headers=_qdrant_headers(),
         json={"points": points},
         timeout=30,
     )
