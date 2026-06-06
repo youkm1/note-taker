@@ -35,7 +35,7 @@ WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
 
 # evaluator: Granite (IBM) for LLM, Gemini for embeddings
 _granite_llm = WatsonxLLM(
-    model_id="ibm/granite-3-8b-instruct",
+    model_id="ibm/granite-4-h-small",
     url=WATSONX_URL,
     project_id=WATSONX_PROJECT_ID,
     params={"max_new_tokens": 1024, "temperature": 0},
