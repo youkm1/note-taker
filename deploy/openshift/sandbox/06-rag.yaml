@@ -25,16 +25,28 @@ spec:
             - configMapRef:
                 name: notetaker-config
           env:
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: notetaker-secrets
-                  key: GEMINI_API_KEY
             - name: QDRANT_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: notetaker-secrets
                   key: QDRANT_API_KEY
+            - name: WATSONX_APIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: notetaker-secrets
+                  key: WATSONX_APIKEY
+            - name: WATSONX_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: notetaker-secrets
+                  key: WATSONX_PROJECT_ID
+            - name: WATSONX_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notetaker-secrets
+                  key: WATSONX_URL
+            - name: VECTOR_SIZE
+              value: "1024"
           resources:
             requests:
               cpu: 300m

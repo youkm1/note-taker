@@ -1,17 +1,14 @@
 """Semantic Chunking — 임베딩 유사도 기반으로 텍스트를 의미 단위 청크로 분할."""
 
 import logging
-import os
 import re
 from dataclasses import dataclass
 
 import numpy as np
-from google import genai
+
+from rag.watsonx_client import embed_texts as _watsonx_embed
 
 logger = logging.getLogger("rag.chunking")
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 @dataclass
@@ -27,12 +24,8 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def _embed(texts: list[str]) -> np.ndarray:
-    """Gemini text-embedding-004로 텍스트 리스트의 임베딩 벡터를 반환."""
-    result = _gemini_client.models.embed_content(
-        model="gemini-embedding-001",
-        contents=texts,
-    )
-    return np.array([e.values for e in result.embeddings])
+    """watsonx 임베딩으로 텍스트 리스트의 임베딩 벡터를 반환."""
+    return np.array(_watsonx_embed(texts))
 
 
 def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:

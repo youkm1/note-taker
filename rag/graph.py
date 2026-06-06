@@ -13,17 +13,15 @@ import logging
 import os
 from typing import Literal
 
-from google import genai
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from rag.retriever import SearchResult, hybrid_search
+from rag.watsonx_client import chat as _watsonx_chat
 
 logger = logging.getLogger("rag.graph")
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-_gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-MAX_RETRIES = 2
+MAX_RETRIES = int(os.getenv("RAG_MAX_RETRIES", "1"))
 
 
 # ---------------------------------------------------------------------------
@@ -47,12 +45,7 @@ class RAGState(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 def _llm_chat(system: str, user: str) -> str:
-    prompt = f"{system}\n\n{user}"
-    response = _gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-    )
-    return response.text
+    return _watsonx_chat(system, user)
 
 
 # ---------------------------------------------------------------------------
