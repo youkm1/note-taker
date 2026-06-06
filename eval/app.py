@@ -106,19 +106,22 @@ def _fill_from_rag(sample: EvalSample) -> EvalSample:
 # ---------------------------------------------------------------------------
 
 def _run_evaluation(samples: list[EvalSample]) -> Dataset:
+    import time
     data = {
         "question": [],
         "answer": [],
         "contexts": [],
         "ground_truth": [],
     }
-    for s in samples:
+    for i, s in enumerate(samples):
+        if i > 0:
+            time.sleep(7)
         s = _fill_from_rag(s)
         data["question"].append(s.question)
         data["answer"].append(s.answer or "")
         data["contexts"].append(s.contexts or [])
         data["ground_truth"].append(s.ground_truth)
-
+    
     dataset = Dataset.from_dict(data)
 
     metrics = [
