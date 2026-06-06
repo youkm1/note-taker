@@ -30,11 +30,11 @@ spec:
                 secretKeyRef:
                   name: notetaker-secrets
                   key: GEMINI_API_KEY_EVAL
-            - name: WATSONX_API_KEY
+            - name: WATSONX_APIKEY
               valueFrom:
                 secretKeyRef:
                   name: notetaker-secrets
-                  key: WATSONX_API_KEY
+                  key: WATSONX_APIKEY
             - name: WATSONX_PROJECT_ID
               valueFrom:
                 secretKeyRef:

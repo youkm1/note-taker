@@ -30,7 +30,6 @@ logger = logging.getLogger("eval")
 
 RAG_URL = os.getenv("RAG_URL", "http://rag:8001")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-WATSONX_API_KEY = os.getenv("WATSONX_API_KEY", "")
 WATSONX_PROJECT_ID = os.getenv("WATSONX_PROJECT_ID", "")
 WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
 
@@ -38,7 +37,6 @@ WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
 _granite_llm = WatsonxLLM(
     model_id="ibm/granite-3-8b-instruct",
     url=WATSONX_URL,
-    apikey=WATSONX_API_KEY,
     project_id=WATSONX_PROJECT_ID,
     params={"max_new_tokens": 1024, "temperature": 0},
 )
