@@ -7,3 +7,5 @@ datasets
 pydantic
 google-genai
 jsonref
+langchain-ibm>=0.3.0,<0.4.0
+ibm-watsonx-ai>=1.0.0
