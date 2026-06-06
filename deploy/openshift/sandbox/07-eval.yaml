@@ -30,6 +30,21 @@ spec:
                 secretKeyRef:
                   name: notetaker-secrets
                   key: GEMINI_API_KEY_EVAL
+            - name: WATSONX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: notetaker-secrets
+                  key: WATSONX_API_KEY
+            - name: WATSONX_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: notetaker-secrets
+                  key: WATSONX_PROJECT_ID
+            - name: WATSONX_URL
+              valueFrom:
+                secretKeyRef:
+                  name: notetaker-secrets
+                  key: WATSONX_URL
           resources:
             requests:
               cpu: 200m
