@@ -1,21 +1,14 @@
-.git
-.venv
-venv
-__pycache__
-*.pyc
-*.pyo
-node_modules
-.env
-.DS_Store
-*.mp3
-*.wav
-*.mp4
-*.m4a
-*.flac
-*.ogg
-deploy/
-workflows/
-eval/datasets/
-*.txt
-.pytest_cache
-.mypy_cache
+# 빌드에 필요한 건 rag/ 뿐 (rag/Dockerfile이 rag/만 COPY).
+# 나머지는 전부 제외해서 oc binary 업로드를 최소화한다.
+*
+!rag
+!rag/**
+
+# rag 안에서도 불필요한 캐시/모델/음성은 제외
+rag/**/__pycache__
+rag/**/*.pyc
+rag/**/*.pyo
+rag/**/*.mp3
+rag/**/*.wav
+rag/**/*.mp4
+rag/**/*.m4a
