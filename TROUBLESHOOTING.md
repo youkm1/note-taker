@@ -1,231 +1,264 @@
-# Eval 서비스 RAGAS 호환성 수정 — 의사결정 & 트러블슈팅 로그
+# Troubleshooting Log — Note-Taker PoC (OpenShift + watsonx + RAGAS)
 
-## 1. 문제 요약
-
-eval 서비스(`eval/app.py`)가 RAGAS 라이브러리의 API 변경(v0.1.x → v0.4.x)으로 인해 컨테이너 기동 시 런타임 에러가 발생하는 상태였다.
-
-### 발견된 이슈 3건
-
-| # | 이슈 | 심각도 |
-|---|------|--------|
-| 1 | 메트릭 import 방식: 소문자 인스턴스(`faithfulness`) → 클래스(`Faithfulness`) 변경 | 치명적 |
-| 2 | 임베딩 래퍼: `langchain_google_genai` → `ragas.embeddings.GoogleEmbeddings` 전환 필요 | 치명적 |
-| 3 | `evaluate()` 호출: `llm=`/`embeddings=`를 함수에 전달 → 메트릭 초기화 시 주입으로 변경 | 치명적 |
-
-### 부수 이슈
-
-| # | 이슈 | 심각도 |
-|---|------|--------|
-| 4 | `.env`의 `WHISPER_MODEL_SIZE=base`가 문서/docker-compose 기본값(`large-v3-turbo`)과 불일치 | 중간 |
-| 5 | `eval/requirements.txt`에 `ragas` 버전 미고정 → 최신 설치 시 API 깨짐 | 높음 |
+OpenShift Sandbox 배포 및 RAGAS 평가 과정에서 겪은 트러블슈팅 기록.
 
 ---
 
-## 2. 수정 내역
+## 1. oc start-build 업로드 무한 대기 (FetchSourceFailed)
 
-### 2.1 eval/app.py — import 변경
-
-**Before:**
-```python
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
+### 증상
+```
+Uploading directory "." as binary input for the build ...
+.......................................................................
+(30분 이상 점만 찍히다 FetchSourceFailed)
 ```
 
-**After:**
-```python
-from ragas.embeddings import GoogleEmbeddings
-from ragas.metrics import AnswerRelevancy, ContextPrecision, ContextRecall, Faithfulness
+### 원인
+`oc start-build --from-dir=.` 는 `.dockerignore`를 업로드 단계에서 **무시**한다.  
+`.dockerignore`는 Docker 빌드 시 COPY 대상을 거르는 것이고, `oc`의 tar 압축·업로드 단계는 별개다.  
+로컬에 `.venv`(수백 MB), `.git`, 음성 파일 등이 전부 업로드되어 타임아웃 발생.
+
+### 해결
+```bash
+# 빌드에 필요한 폴더만 임시 디렉토리로 복사 후 업로드
+rm -rf /tmp/ragbuild && mkdir -p /tmp/ragbuild
+cp -r rag /tmp/ragbuild/rag
+oc start-build notetaker-rag --from-dir=/tmp/ragbuild --follow
+
+# eval도 동일하게
+rm -rf /tmp/evalbuild && mkdir -p /tmp/evalbuild
+cp -r eval /tmp/evalbuild/eval
+oc start-build notetaker-eval --from-dir=/tmp/evalbuild --follow
 ```
 
-**근거:**
-- RAGAS v0.2.x부터 메트릭이 인스턴스 변수(소문자)에서 클래스(PascalCase)로 변경됨
-- 공식 마이그레이션 가이드(docs.ragas.io/en/stable/howtos/migrations/migrate_from_v01_to_v02/) 참조
-- `langchain-google-genai`는 불필요한 의존성 트리(langchain-core, langchain-community 등)를 끌고 오므로, RAGAS 네이티브 `GoogleEmbeddings`로 교체
-
-### 2.2 eval/app.py — 임베딩 초기화 변경
-
-**Before:**
-```python
-_evaluator_embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/gemini-embedding-001",
-    google_api_key=GEMINI_API_KEY,
-)
-```
-
-**After:**
-```python
-_evaluator_embeddings = GoogleEmbeddings(
-    client=_gemini_client,
-    model="gemini-embedding-001",
-)
-```
-
-**근거:**
-- `ragas.embeddings.GoogleEmbeddings`는 `google.genai.Client`를 직접 래핑
-- 이미 생성된 `_gemini_client` 인스턴스를 재사용하므로 API 키 중복 전달 불필요
-- `models/` prefix 불필요 (langchain 래퍼만 필요했던 것)
-- 공식 Gemini 통합 가이드(docs.ragas.io/en/stable/howtos/integrations/gemini/) 패턴 적용
-
-### 2.3 eval/app.py — 메트릭 초기화 + evaluate() 호출 변경
-
-**Before:**
-```python
-metrics = [faithfulness, answer_relevancy, context_precision, context_recall]
-result = evaluate(dataset, metrics=metrics, llm=_evaluator_llm, embeddings=_evaluator_embeddings)
-```
-
-**After:**
-```python
-metrics = [
-    Faithfulness(llm=_evaluator_llm),
-    AnswerRelevancy(llm=_evaluator_llm, embeddings=_evaluator_embeddings),
-    ContextPrecision(llm=_evaluator_llm),
-    ContextRecall(llm=_evaluator_llm),
-]
-result = evaluate(dataset, metrics=metrics)
-```
-
-**근거:**
-- RAGAS v0.4.x에서 메트릭은 클래스 인스턴스화 시 `llm`/`embeddings`를 주입받는 패턴
-- `evaluate()` 함수에 `llm=`/`embeddings=`를 직접 전달하는 방식도 아직 동작하나, 공식 권장 패턴은 메트릭 레벨 주입
-- `AnswerRelevancy`는 LLM과 임베딩 모두 필요 (질문 변형 생성 → 임베딩 유사도 비교)
-- 나머지 3개 메트릭은 LLM만 필요
-
-### 2.4 eval/requirements.txt
-
-**Before:**
-```
-ragas
-...
-langchain-google-genai
-```
-
-**After:**
-```
-ragas>=0.4.0,<0.5.0
-langchain-community>=0.3.0,<0.4.0
-...
-(langchain-google-genai 삭제)
-```
-
-**근거:**
-- `ragas>=0.4.0,<0.5.0` — 클래스 기반 메트릭 API 보장 + 상한 고정으로 미래 breaking change 방어
-- `langchain-community>=0.3.0,<0.4.0` — ragas 0.4.3이 내부적으로 `langchain_community.chat_models.vertexai.ChatVertexAI`를 import하는데, `langchain-community 0.4.x`에서 해당 모듈이 `langchain-google-vertexai` 패키지로 분리됨. 0.3.x에는 아직 존재하므로 하위 버전 고정 (아래 5.7 참조)
-- `langchain-google-genai` 제거 — `ragas.embeddings.GoogleEmbeddings`로 대체했으므로 더 이상 불필요. Docker 이미지 크기 감소 + 의존성 충돌 방지
-
-### 2.6 Dockerfile 수정 (rag/Dockerfile, eval/Dockerfile)
-
-**Before:**
-```dockerfile
-RUN pip install --no-cache-dir -r /app/requirements.txt
-```
-
-**After:**
-```dockerfile
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r /app/requirements.txt
-```
-
-**근거:**
-- `sentence-transformers` (RAG) 및 `ragas` (Eval)가 PyTorch에 의존
-- 기본 pip install은 CUDA 포함 PyTorch를 설치 → NVIDIA 라이브러리만 ~300MB+
-- CPU 전용 index로 먼저 설치하면 CUDA 라이브러리 다운로드를 방지
-- 이 프로젝트는 `WHISPER_DEVICE=cpu`로 GPU를 사용하지 않으므로 CUDA 불필요
-
-### 2.5 .env
-
-**Before:** `WHISPER_MODEL_SIZE=base`
-**After:** `WHISPER_MODEL_SIZE=large-v3-turbo`
-
-**근거:**
-- `docker-compose.yml` 기본값이 `large-v3-turbo`
-- `ARCHITECTURE.md`, `README.md` 모두 `large-v3-turbo` 기준으로 작성
-- `base`는 개발 편의상 임시로 설정된 것으로 판단
+### 교훈
+`oc start-build --from-dir`에서는 `.dockerignore`가 업로드 필터로 작동하지 않는다.  
+빌드 컨텍스트를 최소화하려면 **별도 디렉토리**를 만들어 필요한 파일만 복사해서 올려야 한다.
 
 ---
 
-## 3. 핵심 의사결정: AnswerRelevancy vs AnswerCorrectness
+## 2. OpenShift Route 타임아웃으로 빈 curl 응답
+
+### 증상
+```
+curl ... | python3 -m json.tool
+Expecting value: line 1 column 1 (char 0)
+```
+RAGAS 처리 로그에는 완료가 찍히는데 curl 응답이 비어있음.
+
+### 원인
+OpenShift HAProxy Route 기본 타임아웃(~30~60초)이 RAGAS 처리 시간(60~120초)보다 짧아 연결이 강제 종료됨.
+
+### 해결
+```bash
+oc annotate route notetaker-eval \
+  haproxy.router.openshift.io/timeout=600s \
+  --overwrite
+```
+또는 `08-routes.yaml`에 어노테이션 추가 후 `oc apply`:
+```yaml
+metadata:
+  annotations:
+    haproxy.router.openshift.io/timeout: 600s
+```
+
+### 교훈
+장시간 처리 엔드포인트(RAGAS, LLM 추론 등)는 Route 타임아웃을 반드시 확인해야 한다.  
+YAML 커밋만으로는 클러스터에 반영되지 않는다 — `oc apply`가 필요하다.
+
+---
+
+## 3. RAGAS 점수 전부 null (Gemini API quota 소진)
+
+### 증상
+```json
+{
+  "faithfulness": null,
+  "answer_relevancy": null,
+  "context_precision": 0.0,
+  "context_recall": 0.0
+}
+```
+
+### 원인
+RAG 서비스의 Gemini API key quota 소진(429 RESOURCE_EXHAUSTED).  
+RAG가 Gemini로 **임베딩(검색)과 생성** 양쪽을 처리하므로, 키가 죽으면 `contexts: []` + 에러 답변이 반환됨.  
+RAGAS는 빈 context로 평가해 전부 null/0이 나옴.
+
+```json
+{
+  "answer": "Gemini API 요청 한도에 걸렸습니다...",
+  "contexts": []
+}
+```
+
+### 해결
+- 단기: 새 Gemini API key로 Secret 교체 후 `oc rollout restart`
+- 장기: 벤더 의존성 제거
+
+### 교훈
+RAGAS 점수가 전부 null이면 **평가 LLM이 아니라 RAG 자체를 먼저 확인**해야 한다.  
+`/query` 엔드포인트 직접 호출로 `contexts` 필드가 채워지는지 먼저 검증할 것.
+
+---
+
+## 4. RAGAS Evaluator 모델 교체 과정
+
+### 4-1. Granite-3-8b-instruct 지원 안 됨
+```
+Model 'ibm/granite-3-8b-instruct' is not supported
+```
+→ `ibm/granite-4-h-small`로 변경
+
+### 4-2. Granite-4-h-small JSON 파싱 실패
+```
+RagasOutputParserException: Could not parse output
+```
+RAGAS는 LLM에게 JSON 형식 출력을 요구하는데, 소형 모델이 지시를 따르지 못함.  
+→ `meta-llama/llama-3-3-70b-instruct`로 변경
+
+### 4-3. WATSONX_APIKEY 환경변수 인식 실패
+`WatsonxLLM`은 파라미터 `apikey=`가 아니라 환경변수 `WATSONX_APIKEY`를 읽는다.  
+Secret key 이름을 `WATSONX_API_KEY` → `WATSONX_APIKEY`로 수정하고 `oc apply` 재적용.
+
+### 교훈
+RAGAS LLM-as-judge는 JSON 출력 지시 준수 능력이 필요하다.  
+소형 모델(8B 이하)은 실패 가능성이 높으므로 70B 이상 모델을 권장한다.
+
+---
+
+## 5. watsonx.ai 전체 마이그레이션 → Lite quota 소진으로 롤백
 
 ### 배경
-공식 RAGAS Gemini 통합 가이드에서는 `AnswerCorrectness` 메트릭을 예시로 사용한다. 기존 코드는 `answer_relevancy` 필드를 사용한다.
+Gemini quota 반복 소진으로 watsonx.ai 전면 전환 시도.
+- 생성: `meta-llama/llama-3-3-70b-instruct`
+- 임베딩: `intfloat/multilingual-e5-large` (1024차원, 한국어 multilingual)
 
-### 분석
-이 둘은 **서로 다른 메트릭**이다:
+### 시도한 것
+- `rag/watsonx_client.py` 신규 작성 (chat + embed 공통 모듈)
+- `graph.py`, `retriever.py`, `chunking.py`, `app.py` Gemini → watsonx 전체 교체
+- Qdrant 컬렉션 삭제 후 1024차원으로 재생성·재인덱싱·인제스트까지 성공
 
-| 메트릭 | 측정 대상 | 방식 |
-|--------|----------|------|
-| `AnswerRelevancy` | 답변이 질문에 얼마나 관련되는가 | LLM으로 답변에서 질문 변형 생성 → 원본 질문과 임베딩 유사도 비교 |
-| `AnswerCorrectness` | 답변이 정답(ground truth)과 얼마나 일치하는가 | F1 기반 사실 비교 + 임베딩 유사도 |
+### 실패 원인
+```
+Status code: 403, "code":"token_quota_reached"
+```
+watsonx.ai Lite 플랜 월 quota 소진.  
+RAG 그래프는 질문당 LLM 4~6회 호출(analyse→generate→reflect→rewrite) + RAGAS evaluator 호출이 **같은 계정 quota를 공유**해 빠르게 소진됨.
 
-### 결정
-**`AnswerRelevancy` 유지.**
+### 결과
+`git revert`로 watsonx 마이그레이션 롤백, Gemini 복귀.  
+Qdrant 컬렉션 3072차원으로 재생성, 재인덱싱.
 
-이유:
-1. 기존 코드의 의도가 "답변 관련성" 측정이었음
-2. `AnswerRelevancy` 클래스의 `name` 속성이 `"answer_relevancy"` → DataFrame 컬럼명이 기존과 동일
-3. `EvalScores` 응답 모델의 `answer_relevancy` 필드명과 정확히 일치
-4. n8n 워크플로우(`RAG-QA.json`)의 Format Response 노드가 이 필드명을 참조할 수 있음
-
-`AnswerCorrectness`를 사용하면 컬럼명이 `answer_correctness`로 바뀌어 응답 구조가 변경되므로, 하위 호환성이 깨진다.
+### 교훈
+무료 LLM quota로 RAGAS baseline을 뽑는 것은 구조적으로 어렵다.  
+RAG(4~6회/질문) + RAGAS evaluator가 같은 계정을 쓰면 10개 샘플에 수백 회 호출이 발생한다.  
+유료 플랜 없이 운영하려면 RAG 그래프 호출 수를 최소화(reflect/rewrite 생략)해야 한다.
 
 ---
 
-## 4. 변경하지 않은 것 (+ 이유)
+## 6. RAGAS Evaluator LLM 교체 (watsonx → Gemini)
 
-| 항목 | 이유 |
+### 원인
+watsonx quota 소진 후 RAG는 Gemini로 복귀했으나,  
+eval 서비스는 여전히 watsonx llama를 evaluator로 사용 → 평가 호출마다 403.
+
+### 해결
+`eval/app.py`에서 `WatsonxLLM` → `ChatGoogleGenerativeAI(gemini-2.5-flash)` 교체.  
+임베딩은 이미 `GoogleEmbeddings(gemini-embedding-001)`이라 변경 없음.
+
+```python
+# Before
+from langchain_ibm import WatsonxLLM
+_granite_llm = WatsonxLLM(model_id="meta-llama/llama-3-3-70b-instruct", ...)
+_evaluator_llm = LangchainLLMWrapper(_granite_llm)
+
+# After
+from langchain_google_genai import ChatGoogleGenerativeAI
+_gemini_chat = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=GEMINI_API_KEY,
+    temperature=0,
+)
+_evaluator_llm = LangchainLLMWrapper(_gemini_chat)
+```
+
+### 교훈
+RAG와 Evaluator의 LLM을 다른 벤더로 섞으면 각각의 quota를 독립적으로 관리해야 한다.  
+배포 후 로그에서 새 파드가 올바른 모델을 초기화하는지 반드시 확인할 것.
+
+---
+
+## 7. Qdrant 임베딩 차원 불일치
+
+### 증상
+벡터 검색 시 차원 불일치 에러 또는 검색 결과 없음.
+
+### 원인
+임베딩 모델을 바꾸면 벡터 차원이 달라진다.  
+기존 컬렉션은 이전 차원으로 생성된 상태라 새 벡터와 호환되지 않는다.
+
+| 모델 | 차원 |
 |------|------|
-| `_fill_from_rag()` 함수 | RAG 서비스 연동 로직은 RAGAS 버전과 무관 |
-| `_scores_from_row()` 함수 | 메트릭 `name` 속성이 기존 컬럼명과 동일하므로 수정 불필요 |
-| `EvalScores` 응답 모델 | 필드명 변경 없음 |
-| FastAPI 엔드포인트 | API 인터페이스 변경 없음 |
-| `Dockerfile` | requirements.txt만 변경되면 pip install이 새 버전을 가져옴 |
-| `llm_factory()` 호출 | RAGAS v0.4.x에서도 동일 시그니처 유지 확인 |
-| Dataset 필드명 (`ground_truth`) | RAGAS v0.2+에서 `ground_truth`(단수)가 올바른 형식 |
+| `gemini-embedding-001` | 3072 |
+| `intfloat/multilingual-e5-large` (watsonx) | 1024 |
+
+### 해결
+임베딩 모델 교체 시 반드시:
+1. Qdrant 기존 컬렉션 삭제
+2. 새 차원으로 컬렉션 재생성 (app startup 시 자동)
+3. 문서 재인제스트
+
+```bash
+WX=$(oc get secret notetaker-secrets -o jsonpath='{.data.QDRANT_API_KEY}' | base64 -d)
+QURL=$(oc get cm notetaker-config -o jsonpath='{.data.QDRANT_URL}')
+curl -X DELETE "$QURL/collections/notes" -H "api-key: $WX"
+oc rollout restart deployment/notetaker-rag
+```
+
+### 교훈
+임베딩 모델 교체 = 무조건 재인덱싱.  
+`VECTOR_SIZE` 환경변수를 Deployment YAML에서 명시적으로 관리할 것.
 
 ---
 
-## 5. 트러블슈팅 가이드
+## 8. RAGAS 점수 분석 — context 지표 낮은 원인
 
-### ImportError: cannot import name 'answer_relevancy' from 'ragas.metrics'
-**원인:** RAGAS v0.4.x에서 소문자 인스턴스 제거됨
-**해결:** `from ragas.metrics import AnswerRelevancy` (PascalCase 클래스) 사용
+### 증상 (샘플 1개 결과)
+```json
+{
+  "faithfulness": 1.0,
+  "answer_relevancy": 0.99,
+  "context_precision": 0.0,
+  "context_recall": 0.5
+}
+```
+생성 품질(faithfulness, answer_relevancy)은 높은데 검색 품질(context 지표)이 낮음.
 
-### ImportError: cannot import name 'GoogleGenerativeAIEmbeddings'
-**원인:** `langchain-google-genai` 패키지가 requirements.txt에서 제거됨
-**해결:** 정상. `ragas.embeddings.GoogleEmbeddings` 사용으로 전환 완료
+### 원인 분석
 
-### AnswerRelevancy 결과가 NaN
-**원인:** `AnswerRelevancy` 초기화 시 `embeddings` 미전달
-**해결:** `AnswerRelevancy(llm=llm, embeddings=embeddings)` — 반드시 임베딩 함께 전달
+**context_precision 0.0**: 검색된 context 중 관련 청크가 상위에 랭크되지 않음.  
+현재 BM25가 한국어 어절 단위(`\w+` 정규식)로만 토크나이징 → 형태소 분리 없음.  
+예: "정보통신과" → "정보", "통신"으로 분리 안 됨 → 키워드 매칭 부정확.
 
-### Docker 빌드 시 캐시된 레이어에 langchain이 남아있음
-**해결:** `docker-compose build --no-cache eval`로 캐시 없이 재빌드
+**context_recall 0.5**: ground_truth 정보의 절반만 context에 포함.  
+청크 크기가 커서 관련 정보가 여러 청크에 분산됨.
 
-### evaluate() deprecation 경고
-**상태:** RAGAS v0.4.x에서 `@experiment` 데코레이터 패턴을 권장하지만, `evaluate()` 함수도 여전히 동작
-**대응:** 현재는 무시. 향후 RAGAS가 `evaluate()` 완전 제거 시 `@experiment`로 전환 필요
-
-### RAGAS 버전 업그레이드 후 컬럼명 변경됨
-**확인 방법:** `result.to_pandas().columns`로 실제 컬럼명 확인
-**현재 기대값:** `faithfulness`, `answer_relevancy`, `context_precision`, `context_recall`
-
-### ModuleNotFoundError: No module named 'langchain_community.chat_models.vertexai'
-**원인:** `ragas 0.4.3`의 `ragas/llms/base.py` line 12에서 `from langchain_community.chat_models.vertexai import ChatVertexAI`를 top-level import함. 이 모듈은 `langchain-community 0.3.x`까지 존재했으나, `0.4.x`에서 `langchain-google-vertexai` 별도 패키지로 분리됨.
-**시도한 해결책:**
-1. `langchain-google-vertexai` 설치 → 실패. import 경로가 `langchain_google_vertexai`로 다름 (`langchain_community.chat_models.vertexai` 경로를 복원하지 못함)
-2. `langchain-community>=0.3.0,<0.4.0` 핀닝 → 성공. 0.3.x에 해당 모듈이 존재하므로 import 해결
-**결론:** ragas 0.4.3의 패키징 문제. ragas가 `langchain-community 0.4.x`와의 호환성을 놓친 것으로 판단. 우리 측에서 `langchain-community` 버전을 0.3.x로 고정하여 해결.
-
-### Docker 빌드 시 "No space left on device"
-**원인:** `sentence-transformers` → `torch` 의존성이 기본적으로 CUDA 포함 버전을 설치하여 이미지 크기가 폭증
-**해결:** Dockerfile에서 `pip install torch --index-url https://download.pytorch.org/whl/cpu`로 CPU 전용 PyTorch를 먼저 설치한 뒤 나머지 의존성 설치
-**추가 조치:** `docker system prune -af --volumes`로 미사용 이미지/볼륨 정리
+### 개선 방향
+| 문제 | 단기 | 장기 |
+|------|------|------|
+| BM25 한국어 품질 | - | Elasticsearch + nori 형태소 분석기 (Phase 2) |
+| 청크 분산 | `max_chunk_sentences` 줄이기 | 청킹 전략 개선 |
+| 재랭킹 | - | 한국어 CrossEncoder 모델 사용 |
 
 ---
 
-## 6. 참고 자료
+## 요약 — 반복된 핵심 문제
 
-- [RAGAS v0.1→v0.2 마이그레이션 가이드](https://docs.ragas.io/en/stable/howtos/migrations/migrate_from_v01_to_v02/)
-- [RAGAS Gemini 통합 가이드](https://docs.ragas.io/en/stable/howtos/integrations/gemini/)
-- [RAGAS evaluate() 레퍼런스](https://docs.ragas.io/en/stable/references/evaluate/)
-- [RAGAS 커스텀 모델 설정](https://docs.ragas.io/en/stable/howtos/customizations/customize_models/)
+| 문제 | 근본 원인 | 해결 |
+|------|-----------|------|
+| RAGAS null 점수 | RAG API quota 소진 → `contexts: []` | `/query` 먼저 확인 후 평가 |
+| 빈 curl 응답 | Route 타임아웃 < RAGAS 처리 시간 | Route `timeout=600s` 어노테이션 |
+| 빌드 무한 대기 | `oc start-build --from-dir`이 전체 업로드 | 필요한 폴더만 임시 디렉토리로 분리 |
+| 임베딩 차원 불일치 | 모델 교체 시 Qdrant 미삭제 | 재인덱싱 필수 |
+| LLM quota 소진 | RAG + Evaluator가 같은 계정 공유 | 벤더 분리 또는 유료 플랜 전환 |
