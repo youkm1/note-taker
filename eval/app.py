@@ -19,6 +19,7 @@ from ragas.metrics import (
     ContextRecall,
     Faithfulness,
 )
+from ragas.run_config import RunConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +29,12 @@ logger = logging.getLogger("eval")
 
 RAG_URL = os.getenv("RAG_URL", "http://rag:8001")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+RAG_QUERY_TIMEOUT_SECONDS = int(os.getenv("RAG_QUERY_TIMEOUT_SECONDS", "120"))
+RAGAS_TIMEOUT_SECONDS = int(os.getenv("RAGAS_TIMEOUT_SECONDS", "600"))
+RAGAS_MAX_WORKERS = int(os.getenv("RAGAS_MAX_WORKERS", "2"))
+RAGAS_MAX_RETRIES = int(os.getenv("RAGAS_MAX_RETRIES", "3"))
+RAGAS_MAX_WAIT_SECONDS = int(os.getenv("RAGAS_MAX_WAIT_SECONDS", "60"))
+RAGAS_BATCH_SIZE = int(os.getenv("RAGAS_BATCH_SIZE", "1"))
 
 # evaluator: Gemini for both LLM and embeddings
 _gemini_chat = ChatGoogleGenerativeAI(
@@ -94,7 +101,7 @@ def _fill_from_rag(sample: EvalSample) -> EvalSample:
         resp = requests.post(
             f"{RAG_URL}/query",
             json={"question": sample.question},
-            timeout=120,
+            timeout=RAG_QUERY_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -136,7 +143,25 @@ def _run_evaluation(samples: list[EvalSample]) -> Dataset:
         ContextPrecision(llm=_evaluator_llm),
         ContextRecall(llm=_evaluator_llm),
     ]
-    result = evaluate(dataset, metrics=metrics)
+    run_config = RunConfig(
+        timeout=RAGAS_TIMEOUT_SECONDS,
+        max_workers=RAGAS_MAX_WORKERS,
+        max_retries=RAGAS_MAX_RETRIES,
+        max_wait=RAGAS_MAX_WAIT_SECONDS,
+    )
+    logger.info(
+        "Running RAGAS evaluation samples=%d timeout=%ds max_workers=%d batch_size=%d",
+        len(samples),
+        RAGAS_TIMEOUT_SECONDS,
+        RAGAS_MAX_WORKERS,
+        RAGAS_BATCH_SIZE,
+    )
+    result = evaluate(
+        dataset,
+        metrics=metrics,
+        run_config=run_config,
+        batch_size=RAGAS_BATCH_SIZE,
+    )
     return result
 
 
