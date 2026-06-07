@@ -54,6 +54,7 @@ class IngestResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str
+    force_retrieve: bool = False
 
 
 class QueryResponse(BaseModel):
@@ -181,7 +182,7 @@ async def query(req: QueryRequest):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Question is empty.")
 
     try:
-        result = rag_graph.invoke({"query": req.question})
+        result = rag_graph.invoke({"query": req.question, "force_retrieve": req.force_retrieve})
     except Exception as exc:
         answer = _gemini_error_answer(exc)
         if answer:

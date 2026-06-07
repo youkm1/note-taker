@@ -44,11 +44,34 @@ _gemini_chat = ChatGoogleGenerativeAI(
 )
 _evaluator_llm = LangchainLLMWrapper(_gemini_chat)
 
+class RagasGoogleEmbeddingsCompat:
+    """Compatibility adapter for legacy RAGAS metrics expecting embed_query."""
+
+    def __init__(self, embeddings: GoogleEmbeddings):
+        self.embeddings = embeddings
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embeddings.embed_text(text)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self.embeddings.embed_texts(texts)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        if hasattr(self.embeddings, "aembed_text"):
+            return await self.embeddings.aembed_text(text)
+        return self.embed_query(text)
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        if hasattr(self.embeddings, "aembed_texts"):
+            return await self.embeddings.aembed_texts(texts)
+        return self.embed_documents(texts)
+
+
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-_evaluator_embeddings = GoogleEmbeddings(
+_evaluator_embeddings = RagasGoogleEmbeddingsCompat(GoogleEmbeddings(
     client=_gemini_client,
     model="gemini-embedding-001",
-)
+))
 
 app = FastAPI(title="RAGAS Evaluation Service", version="0.1.0")
 
@@ -100,7 +123,7 @@ def _fill_from_rag(sample: EvalSample) -> EvalSample:
     try:
         resp = requests.post(
             f"{RAG_URL}/query",
-            json={"question": sample.question},
+            json={"question": sample.question, "force_retrieve": True},
             timeout=RAG_QUERY_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
@@ -184,7 +207,7 @@ async def health():
 
 
 @app.post("/evaluate", response_model=EvalResponse)
-async def evaluate_single(req: EvalRequest):
+def evaluate_single(req: EvalRequest):
     """단일 QA 쌍에 대한 RAGAS 평가."""
     try:
         result = _run_evaluation([req.sample])
@@ -200,7 +223,7 @@ async def evaluate_single(req: EvalRequest):
 
 
 @app.post("/evaluate/batch", response_model=BatchEvalResponse)
-async def evaluate_batch(req: BatchEvalRequest):
+def evaluate_batch(req: BatchEvalRequest):
     """배치 QA 쌍에 대한 RAGAS 평가."""
     if not req.samples:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No samples provided.")

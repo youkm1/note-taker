@@ -32,6 +32,7 @@ MAX_RETRIES = 2
 
 class RAGState(TypedDict, total=False):
     query: str
+    force_retrieve: bool
     sub_queries: list[str]
     route: str  # "retrieve" | "direct"
     contexts: list[dict]
@@ -78,6 +79,8 @@ def analyse_query(state: RAGState) -> RAGState:
     route = "retrieve"
     if "ROUTE: direct" in result:
         route = "direct"
+    if state.get("force_retrieve"):
+        route = "retrieve"
 
     sub_queries = []
     in_queries = False
