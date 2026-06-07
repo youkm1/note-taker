@@ -8,13 +8,11 @@ import requests
 from datasets import Dataset
 from fastapi import FastAPI, HTTPException, status
 from google import genai
-from ibm_watsonx_ai import Credentials
-from langchain_ibm import WatsonxLLM
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel
 from ragas import evaluate
 from ragas.embeddings import GoogleEmbeddings
 from ragas.llms import LangchainLLMWrapper
-from ragas.llms import llm_factory
 from ragas.metrics import (
     AnswerRelevancy,
     ContextPrecision,
@@ -30,17 +28,14 @@ logger = logging.getLogger("eval")
 
 RAG_URL = os.getenv("RAG_URL", "http://rag:8001")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-WATSONX_PROJECT_ID = os.getenv("WATSONX_PROJECT_ID", "")
-WATSONX_URL = os.getenv("WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
 
-# evaluator: Granite (IBM) for LLM, Gemini for embeddings
-_granite_llm = WatsonxLLM(
-    model_id="meta-llama/llama-3-3-70b-instruct",
-    url=WATSONX_URL,
-    project_id=WATSONX_PROJECT_ID,
-    params={"max_new_tokens": 1024, "temperature": 0},
+# evaluator: Gemini for both LLM and embeddings
+_gemini_chat = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=GEMINI_API_KEY,
+    temperature=0,
 )
-_evaluator_llm = LangchainLLMWrapper(_granite_llm)
+_evaluator_llm = LangchainLLMWrapper(_gemini_chat)
 
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 _evaluator_embeddings = GoogleEmbeddings(
