@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notetaker-config
+data:
+  STT_PROVIDER: "whisper"
+  WHISPER_MODEL_SIZE: "large-v3-turbo"
+  WHISPER_HF_MODEL: ""
+  WHISPER_DEVICE: "cpu"
+  WHISPER_COMPUTE_TYPE: "int8"
+  IBM_STT_MODEL: "ko-KR_Multimedia"
+  IBM_STT_TIMEOUT: "900"
+  IBM_STT_LEARNING_OPT_OUT: "true"
+  IBM_STT_CUSTOMER_ID: "notetaker"
+  RTZR_POLL_INTERVAL: "5"
+  RTZR_TIMEOUT: "900"
+  QDRANT_URL: "https://b64012b7-75ad-4e35-b6f5-8452375624ba.eu-west-1-0.aws.cloud.qdrant.io:6333"
+  QDRANT_COLLECTION: "notes"
+  VECTOR_SIZE: "3072"
+  RERANKER_MODEL: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  RAG_URL: "http://notetaker-rag:8001"
+  RAG_QUERY_TIMEOUT_SECONDS: "120"
+  RAGAS_TIMEOUT_SECONDS: "600"
+  RAGAS_MAX_WORKERS: "2"
+  RAGAS_MAX_RETRIES: "3"
+  RAGAS_MAX_WAIT_SECONDS: "60"
+  RAGAS_BATCH_SIZE: "1"
+  HF_HOME: "/tmp/huggingface"
+  TRANSFORMERS_CACHE: "/tmp/huggingface/transformers"
+  SENTENCE_TRANSFORMERS_HOME: "/tmp/sentence-transformers"
+  XDG_CACHE_HOME: "/tmp/.cache"

@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notetaker-eval
+  labels:
+    app: notetaker-eval
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notetaker-eval
+  template:
+    metadata:
+      labels:
+        app: notetaker-eval
+    spec:
+      containers:
+        - name: eval
+          image: icr.io/<registry-namespace>/note-taker-eval:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8002
+              name: http
+          envFrom:
+            - configMapRef:
+                name: notetaker-config
+          env:
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: notetaker-secrets
+                  key: GEMINI_API_KEY_EVAL
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 20
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 60
+            timeoutSeconds: 5
+            periodSeconds: 30
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notetaker-eval
+spec:
+  selector:
+    app: notetaker-eval
+  ports:
+    - name: http
+      port: 8002
+      targetPort: 8002

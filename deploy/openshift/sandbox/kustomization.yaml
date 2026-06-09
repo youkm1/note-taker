@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Secret은 포함하지 않음 — oc create secret generic ... 으로 별도 생성
+namespace: youkm0806-dev
+resources:
+  - 01-configmap.yaml
+  - 03-imagestreams.yaml
+  - 04-buildconfigs.yaml
+  - 05-stt.yaml
+  - 06-rag.yaml
+  - 07-eval.yaml
+  - 08-routes.yaml

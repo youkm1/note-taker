@@ -6,9 +6,21 @@ services:
       dockerfile: stt/Dockerfile
     container_name: notetaker-stt
     environment:
-      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-small}
+      - STT_PROVIDER=${STT_PROVIDER:-whisper}
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-large-v3-turbo}
+      - WHISPER_HF_MODEL=${WHISPER_HF_MODEL:-}
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+      - IBM_STT_APIKEY=${IBM_STT_APIKEY:-}
+      - IBM_STT_URL=${IBM_STT_URL:-}
+      - IBM_STT_MODEL=${IBM_STT_MODEL:-ko-KR_Multimedia}
+      - IBM_STT_TIMEOUT=${IBM_STT_TIMEOUT:-900}
+      - IBM_STT_LEARNING_OPT_OUT=${IBM_STT_LEARNING_OPT_OUT:-true}
+      - IBM_STT_CUSTOMER_ID=${IBM_STT_CUSTOMER_ID:-notetaker}
+      - RTZR_CLIENT_ID=${RTZR_CLIENT_ID:-}
+      - RTZR_CLIENT_SECRET=${RTZR_CLIENT_SECRET:-}
+      - RTZR_POLL_INTERVAL=${RTZR_POLL_INTERVAL:-5}
+      - RTZR_TIMEOUT=${RTZR_TIMEOUT:-900}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -22,21 +34,35 @@ services:
       - ./qdrant_data:/qdrant/storage
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: notetaker-ollama
+  rag:
+    build:
+      context: .
+      dockerfile: rag/Dockerfile
+    container_name: notetaker-rag
     environment:
-      - OLLAMA_HOST=0.0.0.0
+      - QDRANT_URL=http://qdrant:6333
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-notes}
+      - VECTOR_SIZE=${VECTOR_SIZE:-3072}
+      - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
     ports:
-      - "11434:11434"
-    volumes:
-      - ./ollama_data:/root/.ollama
-    entrypoint:
-      [
-        "/bin/sh",
-        "-c",
-        "ollama serve & sleep 5 && ollama pull llama3 && ollama pull nomic-embed-text && wait"
-      ]
+      - "8001:8001"
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+
+  eval:
+    build:
+      context: .
+      dockerfile: eval/Dockerfile
+    container_name: notetaker-eval
+    environment:
+      - RAG_URL=http://rag:8001
+      - GEMINI_API_KEY=${GEMINI_API_KEY_EVAL}
+    ports:
+      - "8002:8002"
+    depends_on:
+      - rag
     restart: unless-stopped
 
   n8n:
@@ -53,8 +79,9 @@ services:
       - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-admin}
     volumes:
       - ./n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
     depends_on:
       - stt
       - qdrant
-      - ollama
+      - rag
     restart: unless-stopped

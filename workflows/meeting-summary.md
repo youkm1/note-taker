@@ -1,9 +1,33 @@
-# Meeting Ingestion (n8n Example)
+# Meeting Ingestion Flow
 
-Conceptual flow for turning an uploaded meeting audio file into a summarized, searchable note.
+오디오 업로드 → STT 전사 → Semantic Chunking → Gemini 임베딩 → Qdrant 저장.
 
-1) Trigger: webhook or manual trigger receives the audio file (field `audio`) and optional `lang`.
-2) STT: HTTP Request node → `POST http://stt:8000/stt` (multipart form with `audio`, query `lang` if provided) → returns transcript text.
-3) Summarize: HTTP Request node → `POST http://ollama:11434/api/chat` with a prompt that summarizes the transcript using the `llama3` model.
-4) Embed: HTTP Request node → `POST http://ollama:11434/api/embeddings` with the transcript or summary using the `nomic-embed-text` model → returns vector.
-5) Persist: HTTP Request node → Qdrant `PUT`/`POST` to store `{id, timestamp, title, transcript, summary, embedding}` in a collection (e.g., `notes`).
+## Flow
+
+1. **Trigger**: webhook 또는 수동 트리거로 오디오 파일(`audio`)과 옵션 `lang` 수신.
+
+2. **STT 전사**:
+   ```
+   POST http://stt:8000/stt
+   (multipart form: audio 파일, lang 파라미터)
+   ```
+   - Whisper large-v3-turbo + VAD 필터 적용
+   - KsponSpeech 모델 사용 시 한국어 자동 감지
+   - 응답: `{"text": "전사된 텍스트"}`
+
+3. **RAG Ingest** (Semantic Chunking → 임베딩 → 저장):
+   ```
+   POST http://rag:8001/ingest
+   {"text": "<전사 텍스트>", "title": "회의 제목", "metadata": {"speaker": "..."}}
+   ```
+   - 임베딩 유사도 기반 Semantic Chunking으로 의미 단위 분할
+   - Gemini embedding-001로 각 청크 임베딩 생성
+   - Qdrant에 벡터 + 메타데이터 저장
+   - 응답: `{"chunks_stored": 5, "ids": ["uuid1", ...]}`
+
+## n8n 워크플로우 구성
+
+- **Trigger Node**: Webhook (POST, multipart form)
+- **HTTP Request Node (STT)**: `POST http://stt:8000/stt` → transcript 추출
+- **HTTP Request Node (Ingest)**: `POST http://rag:8001/ingest` → 청킹 및 저장
+- **Code Node (Format Response)**: transcript와 RAG 저장 결과 반환

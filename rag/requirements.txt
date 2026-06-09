@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+numpy
+sentence-transformers==3.3.1
+transformers==4.46.3
+langgraph
+pydantic
+google-genai

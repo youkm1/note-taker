@@ -1,0 +1,68 @@
+# Git 레포에서 직접 빌드 → 내부 ImageStream에 push.
+# 빌드 트리거: oc apply 시 ConfigChange로 자동 시작.
+# 재빌드: oc start-build notetaker-stt (또는 rag / eval)
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: notetaker-stt
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/youkm1/note-taker
+      ref: claude/pensive-volta-jDk0R
+    contextDir: "/"
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: stt/Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: notetaker-stt:latest
+  triggers:
+    - type: ConfigChange
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: notetaker-rag
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/youkm1/note-taker
+      ref: claude/pensive-volta-jDk0R
+    contextDir: "/"
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: rag/Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: notetaker-rag:latest
+  triggers:
+    - type: ConfigChange
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: notetaker-eval
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/youkm1/note-taker
+      ref: claude/pensive-volta-jDk0R
+    contextDir: "/"
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: eval/Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: notetaker-eval:latest
+  triggers:
+    - type: ConfigChange

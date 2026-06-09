@@ -2,3 +2,6 @@ fastapi
 uvicorn
 faster-whisper
 python-multipart
+huggingface_hub
+pydub==0.25.1
+requests

@@ -1,0 +1,157 @@
+{
+  "name": "Meeting Ingestion (Advanced)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "회의록 음성 업로드",
+        "formDescription": "회의 녹음 파일을 업로드하면 자동으로 텍스트 변환 및 저장됩니다.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "오디오 파일",
+              "fieldType": "file",
+              "requiredField": true,
+              "acceptFileTypes": ".mp3,.m4a,.wav,.webm,.ogg,.flac"
+            },
+            {
+              "fieldLabel": "회의 제목",
+              "fieldType": "text",
+              "placeholder": "예: 2024년 1월 팀 회의"
+            },
+            {
+              "fieldLabel": "언어",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  { "option": "ko" },
+                  { "option": "en" },
+                  { "option": "ja" }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "발표자",
+              "fieldType": "text",
+              "placeholder": "예: 홍길동"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [260, 300],
+      "id": "form-meeting",
+      "name": "Form - 회의록 업로드"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://stt:8000/stt",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "audio",
+              "inputDataFieldName": "오디오 파일"
+            },
+            {
+              "parameterType": "formData",
+              "name": "lang",
+              "value": "={{ $json['언어'] || 'ko' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [480, 300],
+      "id": "stt-node",
+      "name": "STT - Whisper Transcription",
+      "notes": "Whisper large-v3-turbo with VAD filter"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://rag:8001/ingest",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: $json.text,\n  title: $('Form - 회의록 업로드').item.json['회의 제목'] || 'Meeting ' + new Date().toISOString().split('T')[0],\n  metadata: {\n    source: 'meeting',\n    language: $('Form - 회의록 업로드').item.json['언어'] || 'ko',\n    timestamp: new Date().toISOString(),\n    speaker: $('Form - 회의록 업로드').item.json['발표자'] || 'unknown'\n  }\n}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [700, 300],
+      "id": "rag-ingest",
+      "name": "RAG - Ingest with Semantic Chunking",
+      "notes": "Advanced RAG features:\n- Semantic Chunking (embedding similarity-based)\n- Gemini embeddings\n- Store in Qdrant with metadata"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ragResponse = $node['RAG - Ingest with Semantic Chunking'].json;\nconst transcript = $node['STT - Whisper Transcription'].json;\n\nreturn [{\n  json: {\n    success: true,\n    transcript: transcript.text,\n    rag_result: {\n      chunks_stored: ragResponse.chunks_stored || 0,\n      chunk_ids: ragResponse.ids || []\n    },\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300],
+      "id": "format-response",
+      "name": "Format Response"
+    }
+  ],
+  "connections": {
+    "Form - 회의록 업로드": {
+      "main": [
+        [
+          {
+            "node": "STT - Whisper Transcription",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STT - Whisper Transcription": {
+      "main": [
+        [
+          {
+            "node": "RAG - Ingest with Semantic Chunking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RAG - Ingest with Semantic Chunking": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": [
+    {
+      "name": "RAG",
+      "id": "rag-tag"
+    },
+    {
+      "name": "STT",
+      "id": "stt-tag"
+    }
+  ]
+}
