@@ -25,12 +25,24 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 COLLECTION = os.getenv("QDRANT_COLLECTION", "notes")
 VECTOR_SIZE = int(os.getenv("VECTOR_SIZE", "3072"))
+ES_URL = os.getenv("ES_URL", "")
+ES_API_KEY = os.getenv("ES_API_KEY", "")
+ES_INDEX = os.getenv("ES_INDEX", "notes")
 
 
 def _qdrant_headers() -> dict:
     if QDRANT_API_KEY:
         return {"api-key": QDRANT_API_KEY}
     return {}
+
+
+def _es_headers() -> dict:
+    return {
+        "Authorization": f"ApiKey {ES_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -114,6 +126,50 @@ def _ensure_collection():
     logger.info("Created Qdrant collection=%s size=%d", COLLECTION, VECTOR_SIZE)
 
 
+def _ensure_es_index():
+    if not ES_URL or not ES_API_KEY:
+        logger.info("ES_URL not set, skipping ES index setup")
+        return
+    try:
+        resp = requests.head(
+            f"{ES_URL}/{ES_INDEX}",
+            headers=_es_headers(),
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            logger.info("ES index=%s already exists", ES_INDEX)
+            return
+    except requests.RequestException:
+        pass
+    resp = requests.put(
+        f"{ES_URL}/{ES_INDEX}",
+        headers=_es_headers(),
+        json={
+            "settings": {
+                "analysis": {
+                    "analyzer": {
+                        "korean": {
+                            "type": "nori",
+                            "decompound_mode": "mixed",
+                        }
+                    }
+                }
+            },
+            "mappings": {
+                "properties": {
+                    "text": {"type": "text", "analyzer": "korean"},
+                    "title": {"type": "keyword"},
+                    "chunk_index": {"type": "integer"},
+                    "timestamp": {"type": "date"},
+                }
+            },
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    logger.info("Created ES index=%s with nori analyzer", ES_INDEX)
+
+
 # ---------------------------------------------------------------------------
 # 엔드포인트
 # ---------------------------------------------------------------------------
@@ -121,6 +177,7 @@ def _ensure_collection():
 @app.on_event("startup")
 async def startup():
     _ensure_collection()
+    _ensure_es_index()
 
 
 @app.get("/health")
@@ -170,7 +227,26 @@ async def ingest(req: IngestRequest):
         timeout=30,
     )
     resp.raise_for_status()
-    logger.info("Ingested %d chunks into collection=%s", len(points), COLLECTION)
+    logger.info("Ingested %d chunks into Qdrant collection=%s", len(points), COLLECTION)
+
+    # Elasticsearch에 적재 (BM25 키워드 검색용)
+    if ES_URL and ES_API_KEY:
+        bulk_body = ""
+        for p in points:
+            bulk_body += f'{{"index": {{"_index": "{ES_INDEX}", "_id": "{p["id"]}"}}}}\n'
+            doc = {k: v for k, v in p["payload"].items()}
+            import json as _json
+            bulk_body += _json.dumps(doc, ensure_ascii=False) + "\n"
+        es_resp = requests.post(
+            f"{ES_URL}/_bulk",
+            headers=_es_headers(),
+            data=bulk_body.encode("utf-8"),
+            timeout=30,
+        )
+        if es_resp.ok:
+            logger.info("Ingested %d chunks into ES index=%s", len(points), ES_INDEX)
+        else:
+            logger.warning("ES bulk ingest failed: %s %s", es_resp.status_code, es_resp.text[:200])
 
     return IngestResponse(chunks_stored=len(points), ids=ids)
 
